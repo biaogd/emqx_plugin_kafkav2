@@ -1,0 +1,29 @@
+## This is a demo config in HOCON format
+## The same format used by EMQX since 5.0
+
+magic_n = 42
+kafka_servers = [
+  {
+    host = server1
+    port = 9092
+  },
+  {
+    host = server2
+    port = 9092
+  },
+  {
+    host = server3
+    port = 9092
+  }
+]
+
+topic_mapping = [
+  {
+    mqtt_topic = "$thing/req/property/#"
+    kafka_topic = mqttThingProperty
+  },
+  {
+    mqtt_topic = "$thing/req/event/#"
+    kafka_topic = mqttThingEvent
+  }
+]
