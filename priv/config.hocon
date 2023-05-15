@@ -27,3 +27,13 @@ topic_mapping = [
     kafka_topic = mqttThingEvent
   }
 ]
+
+common_topic = {
+  client_connected = mqttClientConnected
+  client_disconnected = mqttClientDisconnected
+  client_subscribe = mqttClientSubscribe
+  client_unsubscribe = mqttClientUnsubscribe
+  session_created = mqttSessionCreated
+  session_subscribed = mqttSessionSubscribed
+  session_unsubscribed = mqttSessionUnsubscribed
+}
