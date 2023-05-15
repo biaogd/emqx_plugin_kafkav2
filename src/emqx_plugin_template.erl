@@ -56,14 +56,14 @@ func([H | T]) ->
 
 kafka_init(_Env) ->
     ?SLOG(warning, "Start to init emqx plugin kafka...... ~n"),
-    {ok, Conf} = hocon:load("/etc/emqx/kafka.conf"),
-    KafkaServer = maps:get(<<"kafka_server">>, Conf),
-    ?SLOG(warning, #{msg => "conf", conf => Conf}),
+    {ok, Conf} = hocon:load("/opt/emqx/etc/kafka.conf"),
+    ConfJson = jsx:encode(Conf),
+    maps:put(<<"kafkaConf">>, ConfJson, _Env),
+    ?SLOG(warning, #{msg => "conf", conf => Conf, env => _Env}),
 
     KafkaServers = maps:get(<<"kafka_servers">>, Conf),
     List = maps:get(<<"topic_mapping">>, Conf),
     func(List),
-    % Port = maps:get(<<"port">>, Conf),
     {ok, _} = application:ensure_all_started(brod),
     ok = brod:start_client(KafkaServers, client),
     ?SLOG(info, "Init emqx plugin kafka successfully.....~n"),
@@ -87,7 +87,7 @@ load(Env) ->
 %%--------------------------------------------------------------------
 
 on_client_connected(ClientInfo = #{clientid := ClientId}, ConnInfo, _Env) ->
-    MqttClientConnectedTopic = maps:get(<<"client_connected">>, Conf),
+    % MqttClientConnectedTopic = maps:get(<<"client_connected">>, Conf),
     Ts = maps:get(<<"connected_at">>, ConnInfo),
     Username = maps:get(<<"username">>, ConnInfo),
     Action = <<"connected">>,
@@ -104,12 +104,12 @@ on_client_connected(ClientInfo = #{clientid := ClientId}, ConnInfo, _Env) ->
     ],
     if
         not IsSuperuser ->
-            send_kafka(Payload, Username, MqttClientConnectedTopic);
+            send_kafka(Payload, Username, <<"mqtt">>);
         true -> ok
     end.
 
 on_client_disconnected(ClientInfo = #{clientid := ClientId}, ReasonCode, ConnInfo, _Env) ->
-    MqttClientDisconnected = maps:get(<<"client_disconnected">>),
+    % MqttClientDisconnected = maps:get(<<"client_disconnected">>),
     Ts = maps:get(<<"connected_at">>, ConnInfo),
     Username = maps:get(<<"username">>, ConnInfo),
     Action = <<"disconnected">>,
@@ -123,7 +123,7 @@ on_client_disconnected(ClientInfo = #{clientid := ClientId}, ReasonCode, ConnInf
     ],
     if 
         not IsSuperuser ->
-            send_kafka(Payload, Username, MqttClientDisconnected);
+            send_kafka(Payload, Username, <<"mqtt">>);
         true -> ok
     end.
 
@@ -181,7 +181,7 @@ on_message_publish(Message, _Env) ->
         {retain, Retain}
     ],
 
-    TopicStr = binary_to_list(Topic),
+    TopicStr = binary_to_list(Topic).
     
 
 
