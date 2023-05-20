@@ -31,14 +31,6 @@
 %% Client Lifecircle Hooks
 -export([ on_client_connected/3
         , on_client_disconnected/4
-        , on_client_subscribe/4
-        , on_client_unsubscribe/4
-        ]).
-
-%% Session Lifecircle Hooks
--export([ on_session_created/3
-        , on_session_subscribed/4
-        , on_session_unsubscribed/4
         ]).
 
 %% Message Pubsub Hooks
@@ -47,29 +39,19 @@
 
 -define(Conf, element(2, hocon:load("/opt/emqx/etc/kafka.conf"))).
 
-func([]) -> ok;
-
-func([H | T]) ->
-    MqttTopic = maps:get(<<"mqtt_topic">>, H),
-    KafkaTopic = maps:get(<<"kafka_topic">>, H),
-    ?SLOG(warning, #{msg => "array topic print", mqttTopic => MqttTopic, kafkaTopic => KafkaTopic}),
-    brod:start_producer(client, KafkaTopic, []),
-    func(T).
-
-
 kafka_init(_Env) ->
-    ?SLOG(warning, "Start to init emqx plugin kafka...... ~n"),
-    ?SLOG(warning, #{msg => "conf", conf => ?Conf, env => _Env}),
+    ?SLOG(info, "Start to init emqx plugin kafka...... ~n"),
+    ?SLOG(info, #{msg => "conf", conf => ?Conf, env => _Env}),
 
     KafkaServers = maps:get(<<"kafka_servers">>, ?Conf),
     ServerHosts = lists:map(fun(A) -> {maps:get(<<"host">>, A), maps:get(<<"port">>, A)} end, KafkaServers),
-    ?SLOG(warning, #{msg => "kafka server hosts", kafkaServers => KafkaServers, serverHosts => ServerHosts}),
-    List = maps:get(<<"topic_mapping">>, ?Conf),
-    func(List),
+    ?SLOG(info, #{msg => "kafka server hosts", kafkaServers => KafkaServers, serverHosts => ServerHosts}),
     {ok, _} = application:ensure_all_started(brod),
     ok = brod:start_client(ServerHosts, client),
     CommonTopic = maps:get(<<"common_topic">>, ?Conf),
     maps:foreach(fun(A,B) -> brod:start_producer(client, B, []) end, CommonTopic),
+    List = maps:get(<<"topic_mapping">>, ?Conf),
+    lists:foreach(fun(A) -> brod:start_producer(client, maps:get(<<"kafka_topic">>, A), []) end, List),
     ?SLOG(info, "Init emqx plugin kafka successfully.....~n"),
     ok.
     
@@ -79,11 +61,6 @@ load(Env) ->
     kafka_init([Env]),
     hook('client.connected',    {?MODULE, on_client_connected, [Env]}),
     hook('client.disconnected', {?MODULE, on_client_disconnected, [Env]}),
-    hook('client.subscribe',    {?MODULE, on_client_subscribe, [Env]}),
-    hook('client.unsubscribe',  {?MODULE, on_client_unsubscribe, [Env]}),
-    hook('session.created',     {?MODULE, on_session_created, [Env]}),
-    hook('session.subscribed',  {?MODULE, on_session_subscribed, [Env]}),
-    hook('session.unsubscribed',{?MODULE, on_session_unsubscribed, [Env]}),
     hook('message.publish',     {?MODULE, on_message_publish, [Env]}).
 
 %%--------------------------------------------------------------------
@@ -91,7 +68,7 @@ load(Env) ->
 %%--------------------------------------------------------------------
 
 on_client_connected(ClientInfo = #{clientid := ClientId}, ConnInfo, _Env) ->
-    ?SLOG(warning, #{msg=>"clientInfo", connInfo => ConnInfo}),
+    % ?SLOG(warning, #{msg=>"clientInfo", connInfo => ConnInfo}),
     Ts = maps:get(connected_at, ConnInfo),
     Username = maps:get(username, ConnInfo),
     Action = <<"connected">>,
@@ -136,27 +113,6 @@ on_client_disconnected(ClientInfo = #{clientid := ClientId}, ReasonCode, ConnInf
         true -> ok
     end.
 
-on_client_subscribe(#{clientid := ClientId}, _Properties, TopicFilters, _Env) ->
-    io:format("Client(~s) will subscribe: ~p~n", [ClientId, TopicFilters]),
-    {ok, TopicFilters}.
-
-on_client_unsubscribe(#{clientid := ClientId}, _Properties, TopicFilters, _Env) ->
-    io:format("Client(~s) will unsubscribe ~p~n", [ClientId, TopicFilters]),
-    {ok, TopicFilters}.
-
-%%--------------------------------------------------------------------
-%% Session LifeCircle Hooks
-%%--------------------------------------------------------------------
-
-on_session_created(#{clientid := ClientId}, SessInfo, _Env) ->
-    io:format("Session(~s) created, Session Info:~n~p~n", [ClientId, SessInfo]).
-
-on_session_subscribed(#{clientid := ClientId}, Topic, SubOpts, _Env) ->
-    io:format("Session(~s) subscribed ~s with subopts: ~p~n", [ClientId, Topic, SubOpts]).
-
-on_session_unsubscribed(#{clientid := ClientId}, Topic, Opts, _Env) ->
-    io:format("Session(~s) unsubscribed ~s with opts: ~p~n", [ClientId, Topic, Opts]).
-
 %%--------------------------------------------------------------------
 %% Message PubSub Hooks
 %%--------------------------------------------------------------------
@@ -190,7 +146,17 @@ on_message_publish(Message, _Env) ->
         {retain, Retain}
     ],
 
-    TopicStr = binary_to_list(Topic).
+    TopicMapping = maps:get(<<"topic_mapping">>, ?Conf),
+    lists:foreach(fun(A) -> 
+        MqttTopic = maps:get(<<"mqtt_topic">>, A),
+        case emqx_topic:match(Topic, MqttTopic) of
+            true -> 
+                KafkaTopic = maps:get(<<"kafka_topic">>, A),
+                send_kafka(MsgBody, Username, KafkaTopic);
+            false -> ok
+        end end,
+        TopicMapping
+        ).
     
 
 
@@ -198,6 +164,7 @@ send_kafka(MsgBody, Username, KafkaTopic) ->
     Mb = jsx:encode(MsgBody),
     PayloadJson = iolist_to_binary(Mb),
     brod:produce_cb(client, KafkaTopic, hash, Username, PayloadJson, fun(_,_) -> ok end),
+    % ?SLOG(warning, #{msg => "send kafka", kafkaTopic => KafkaTopic}),
     ok.
 
 ntoa({0, 0, 0, 0, 0, 16#ffff, AB, CD}) ->
@@ -222,11 +189,6 @@ get_common_topic(HookName) ->
 unload() ->
     unhook('client.connected',    {?MODULE, on_client_connected}),
     unhook('client.disconnected', {?MODULE, on_client_disconnected}),
-    unhook('client.subscribe',    {?MODULE, on_client_subscribe}),
-    unhook('client.unsubscribe',  {?MODULE, on_client_unsubscribe}),
-    unhook('session.created',     {?MODULE, on_session_created}),
-    unhook('session.subscribed',  {?MODULE, on_session_subscribed}),
-    unhook('session.unsubscribed',{?MODULE, on_session_unsubscribed}),
     unhook('message.publish',     {?MODULE, on_message_publish}).
 
 hook(HookPoint, MFA) ->
