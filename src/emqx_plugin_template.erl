@@ -45,6 +45,8 @@
 -export([ on_message_publish/2
         ]).
 
+-define(Conf, element(2, hocon:load("/opt/emqx/etc/kafka.conf"))).
+
 func([]) -> ok;
 
 func([H | T]) ->
@@ -54,18 +56,20 @@ func([H | T]) ->
     brod:start_producer(client, KafkaTopic, []),
     func(T).
 
+
 kafka_init(_Env) ->
     ?SLOG(warning, "Start to init emqx plugin kafka...... ~n"),
-    {ok, Conf} = hocon:load("/opt/emqx/etc/kafka.conf"),
-    ConfJson = jsx:encode(Conf),
-    maps:put(<<"kafkaConf">>, ConfJson, _Env),
-    ?SLOG(warning, #{msg => "conf", conf => Conf, env => _Env}),
+    ?SLOG(warning, #{msg => "conf", conf => ?Conf, env => _Env}),
 
-    KafkaServers = maps:get(<<"kafka_servers">>, Conf),
-    List = maps:get(<<"topic_mapping">>, Conf),
+    KafkaServers = maps:get(<<"kafka_servers">>, ?Conf),
+    ServerHosts = lists:map(fun(A) -> {maps:get(<<"host">>, A), maps:get(<<"port">>, A)} end, KafkaServers),
+    ?SLOG(warning, #{msg => "kafka server hosts", kafkaServers => KafkaServers, serverHosts => ServerHosts}),
+    List = maps:get(<<"topic_mapping">>, ?Conf),
     func(List),
     {ok, _} = application:ensure_all_started(brod),
-    ok = brod:start_client(KafkaServers, client),
+    ok = brod:start_client(ServerHosts, client),
+    CommonTopic = maps:get(<<"common_topic">>, ?Conf),
+    maps:foreach(fun(A,B) -> brod:start_producer(client, B, []) end, CommonTopic),
     ?SLOG(info, "Init emqx plugin kafka successfully.....~n"),
     ok.
     
@@ -87,13 +91,13 @@ load(Env) ->
 %%--------------------------------------------------------------------
 
 on_client_connected(ClientInfo = #{clientid := ClientId}, ConnInfo, _Env) ->
-    % MqttClientConnectedTopic = maps:get(<<"client_connected">>, Conf),
-    Ts = maps:get(<<"connected_at">>, ConnInfo),
-    Username = maps:get(<<"username">>, ConnInfo),
+    ?SLOG(warning, #{msg=>"clientInfo", connInfo => ConnInfo}),
+    Ts = maps:get(connected_at, ConnInfo),
+    Username = maps:get(username, ConnInfo),
     Action = <<"connected">>,
-    Keepalive = maps:get(<<"keepalive">>, ConnInfo),
-    {IpAddr, _Port} = maps:get(<<"peername">>, ConnInfo),
-    IsSuperuser = maps:get(<<"is_superuser">>, ConnInfo),
+    Keepalive = maps:get(keepalive, ConnInfo),
+    {IpAddr, _Port} = maps:get(peername, ConnInfo),
+    IsSuperuser = maps:get(is_superuser, ClientInfo),
     Payload = [
         {action, Action},
         {username, Username},
@@ -102,16 +106,18 @@ on_client_connected(ClientInfo = #{clientid := ClientId}, ConnInfo, _Env) ->
         {timestamp, Ts},
         {client_id, ClientId}
     ],
+
+    MqttClientConnected = get_common_topic(<<"client_connected">>),
+
     if
         not IsSuperuser ->
-            send_kafka(Payload, Username, <<"mqtt">>);
+            send_kafka(Payload, Username, MqttClientConnected);
         true -> ok
     end.
 
 on_client_disconnected(ClientInfo = #{clientid := ClientId}, ReasonCode, ConnInfo, _Env) ->
-    % MqttClientDisconnected = maps:get(<<"client_disconnected">>),
-    Ts = maps:get(<<"connected_at">>, ConnInfo),
-    Username = maps:get(<<"username">>, ConnInfo),
+    Ts = maps:get(connected_at, ConnInfo),
+    Username = maps:get(username, ConnInfo),
     Action = <<"disconnected">>,
     IsSuperuser = maps:get(is_superuser, ClientInfo),
     Payload = [
@@ -121,9 +127,12 @@ on_client_disconnected(ClientInfo = #{clientid := ClientId}, ReasonCode, ConnInf
         {reason, ReasonCode},
         {ts, Ts}
     ],
+
+    MqttClientDisconnected = get_common_topic(<<"client_disconnected">>),
+
     if 
         not IsSuperuser ->
-            send_kafka(Payload, Username, <<"mqtt">>);
+            send_kafka(Payload, Username, MqttClientDisconnected);
         true -> ok
     end.
 
@@ -186,7 +195,7 @@ on_message_publish(Message, _Env) ->
 
 
 send_kafka(MsgBody, Username, KafkaTopic) -> 
-    {ok, Mb} = emqx_json:safe_encode(MsgBody),
+    Mb = jsx:encode(MsgBody),
     PayloadJson = iolist_to_binary(Mb),
     brod:produce_cb(client, KafkaTopic, hash, Username, PayloadJson, fun(_,_) -> ok end),
     ok.
@@ -204,6 +213,10 @@ json_minify(Payload)->
         true ->
             Payload
     end.
+
+get_common_topic(HookName) ->
+    CommonTopic = maps:get(<<"common_topic">>, ?Conf),
+    maps:get(HookName, CommonTopic).
 
 %% Called when the plugin application stop
 unload() ->
