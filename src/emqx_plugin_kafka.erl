@@ -52,7 +52,7 @@ kafka_init(_Env) ->
     maps:foreach(fun(A,B) -> brod:start_producer(client, B, []) end, CommonTopic),
     List = maps:get(<<"topic_mapping">>, ?Conf),
     lists:foreach(fun(A) -> brod:start_producer(client, maps:get(<<"kafka_topic">>, A), []) end, List),
-    ?SLOG(info, "Init emqx plugin kafka successfully.....~n"),
+    ?SLOG(warning, "Init emqx plugin kafka successfully.....~n"),
     ok.
     
 
