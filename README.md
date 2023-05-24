@@ -1,6 +1,6 @@
-# emqx-plugin-template
+# emqx-plugin-kafka
 
-This is a template plugin for EMQX >= 5.0.
+This is a kafka plugin for EMQX >= 5.0.
 
 For EMQX >= 4.3, please see branch emqx-v4
 
@@ -16,6 +16,56 @@ A EMQX plugin release is a zip package including
 Execute `make rel` to have the package created like:
 
 ```
-_build/default/emqx_plugrel/emqx_plugin_template-<vsn>.tar.gz
+_build/default/emqx_plugrel/emqx_plugin_kafka-<vsn>.tar.gz
 ```
-See EMQX documents for details on how to deploy the plugin.
+## Config
+
+Config file `/etc/emqx/emqx_plugin_kafka.conf` or `/opt/emqx/etc/emqx_plugin_kafka.conf` when run in container.
+
+Support hook:
+
+* client.connected
+* client.disconnected
+* message.publish
+
+
+
+Example config:
+
+```hocon
+## This is a demo config in HOCON format
+## The same format used by EMQX since 5.0
+
+kafka_servers = [
+  {
+    host = server1
+    port = 9092
+  },
+  {
+    host = server2
+    port = 9092
+  },
+  {
+    host = server3
+    port = 9092
+  }
+]
+
+topic_mapping = [
+  {
+    mqtt_topic = "$thing/req/property/#"
+    kafka_topic = mqttThingProperty
+  },
+  {
+    mqtt_topic = "$thing/req/event/#"
+    kafka_topic = mqttThingEvent
+  }
+]
+
+common_topic = {
+  client_connected = mqttClientConnected
+  client_disconnected = mqttClientDisconnected
+}
+```
+
+You need to manually create the kafka topuc first 
