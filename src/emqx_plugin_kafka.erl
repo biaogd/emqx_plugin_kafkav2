@@ -99,7 +99,7 @@ on_client_disconnected(ClientInfo = #{clientid := ClientId}, ReasonCode, ConnInf
     IsSuperuser = maps:get(is_superuser, ClientInfo),
     Payload = [
         {action, Action},
-        {device_id, Username},
+        {username, Username},
         {client_id, ClientId},
         {reason, ReasonCode},
         {ts, Ts}
@@ -138,7 +138,7 @@ on_message_publish(Message, _Env) ->
         {msg_id, binary:encode_hex(MsgId)},
         {ts, Timestamp},
         {payload, Payload1},
-        {device_id, Username},
+        {username, Username},
         {topic, Topic},
         {action, MsgType},
         {client_id, From},
