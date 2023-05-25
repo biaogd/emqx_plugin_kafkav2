@@ -78,9 +78,9 @@ on_client_connected(ClientInfo = #{clientid := ClientId}, ConnInfo, _Env) ->
     Payload = [
         {action, Action},
         {username, Username},
-        {keeplive, Keepalive},
+        {keepalive, Keepalive},
         {ipaddress, iolist_to_binary(ntoa(IpAddr))},
-        {timestamp, Ts},
+        {ts, Ts},
         {client_id, ClientId}
     ],
 
